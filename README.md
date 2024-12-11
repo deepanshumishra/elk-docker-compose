@@ -60,15 +60,102 @@ input {
 }
 
 filter {
-  # Add filter configurations here
+  csv {
+    separator => ","
+    skip_header => "true"
+    columns => [
+      "Index", "User Id", "First Name", "Last Name", "Company", "City", "Country", 
+      "Subscription Date", "Website"
+    ]
+    add_field => { "source" => "customers" }
+  }
+  
+  if [source] == "customers" {
+    mutate {
+      convert => { "Index" => "integer" }
+    }
+    
+    # Ensure the 'Subscription Date' field is parsed into a date format
+    date {
+      match => ["Subscription Date", "dd/MM/yyyy"]
+      target => "Subscription Date"
+      tag_on_failure => ["date_parse_failure"]
+    }
+  }
+
+  csv {
+    separator => ","
+    skip_header => "true"
+    columns => [
+      "Index", "User Id", "First Name", "Last Name", "Sex", "Email", "Phone", 
+      "Date of birth", "Job Title"
+    ]
+    add_field => { "source" => "people" }
+  }
+  
+  if [source] == "people" {
+    mutate {
+      convert => { "Index" => "integer" }
+    }
+    
+    # Ensure the 'Date of birth' field is parsed into a date format
+    date {
+      match => ["Date of birth", "dd/MM/yyyy"]
+      target => "Date of birth"
+      tag_on_failure => ["date_parse_failure"]
+    }
+
+    
+  }
+
+  # Enrichment: Join customers and people data
+  aggregate {
+    task_id => "%{[User Id]}"
+    code => "
+      map['User Id'] = event.get('User Id')
+      map['First Name'] ||= event.get('First Name')
+      map['Last Name'] ||= event.get('Last Name')
+      map['Company'] ||= event.get('Company')
+      map['City'] ||= event.get('City')
+      map['Country'] ||= event.get('Country')
+      map['Subscription Date'] ||= event.get('Subscription Date')
+      map['Website'] ||= event.get('Website')
+      map['Sex'] ||= event.get('Sex')
+      map['Email'] ||= event.get('Email')
+      map['Phone'] ||= event.get('Phone')
+      map['Date of birth'] ||= event.get('Date of birth')
+      map['Job Title'] ||= event.get('Job Title')
+      event.cancel()
+    "
+    push_previous_map_as_event => true
+    timeout => 3
+  }
+
+  # Enrichment: Calculate Age
+  ruby {
+    code => "
+      require 'date'
+      if event.get('Date of birth')
+        dob = Date.parse(event.get('Date of birth'))
+        today = Date.today
+        age = today.year - dob.year - ((today.month > dob.month || (today.month == dob.month && today.day >= dob.day)) ? 0 : 1)
+        event.set('Age', age)
+      end
+    "
+  }
 }
 
 output {
   elasticsearch {
     hosts => ["https://es01:9200"]
-    user => "elastic"
+    index => "enriched_users"
+    user => "${ELASTIC_USERNAME}"
     password => "${ELASTIC_PASSWORD}"
-    ssl => true
-    ssl_certificate_verification => false
+    ssl_enabled => true
+    ssl_certificate_verification => true
+    cacert => "/usr/share/logstash/config/certs/ca/ca.crt"
+    timeout => "${ELASTIC_TIMEOUT}"
   }
+
+  stdout { codec => rubydebug }
 }
