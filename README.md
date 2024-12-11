@@ -158,7 +158,7 @@ output {
   }
 
   stdout { codec => rubydebug }
-}
+}```
 
 
 ## **Kinbana UI**
