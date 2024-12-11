@@ -159,3 +159,7 @@ output {
 
   stdout { codec => rubydebug }
 }
+
+
+## **Kinbana UI**
+![alt text](image.png)
